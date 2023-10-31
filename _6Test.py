@@ -117,7 +117,7 @@ if __name__ == "__main__":
 
     # 读取模型文件
     ModelPath = r"./Output/model"
-    Models = os.listdir(ModelPath)
+    Models = ["1.0_0200.pt"]
 
     # 存储所有的曲线绘制数据
     OutputList = []
@@ -134,8 +134,7 @@ if __name__ == "__main__":
         # 初始化模型
         # TODO:目前遍历测试与评估只支持同一网络结构
         if UsingNet == "Net1":
-            Net = ClassifyNet(In_Channels=1, Out_Channels=ClassNum, device=device, file_path=None, Features=6,
-                              LastLayerWithAvgPool=False).to(device)
+            Net = BinNet().to(device)
             # 导入模型
             Net.load_state_dict(torch.load(FullModelPath, map_location=device))
             # 开启测试模式，取消梯度更新
@@ -183,12 +182,9 @@ if __name__ == "__main__":
             OutputID = list(Output).index(max(Output))
             ShowImg = resultVisualization(InputImg, Label, Output, Display=False)
             LabelID = Label.numpy()[0]
-            # if LabelID == OutputID:
-            #     cv.imwrite(OutputFolderPath + r"\{0}\true\{1}_{2}.jpg".format(LabelID, LabelID, TrueNum), cv.resize(ShowImg, (48, 36)))
-            #     TrueNum += 1
-            # else:
-            #     cv.imwrite(OutputFolderPath + r"\{0}\false\{1}_{2}_{3}_{4}.jpg".format(LabelID, LabelID, FalseNum, OutputID, max(Output)),cv.resize(ShowImg, (48, 36)))
-            #     FalseNum += 1
+            if LabelID != OutputID:
+                cv.imwrite(OutputFolderPath + r"/{0}/false/{1}_{2}_{3}_{4}.jpg".format(LabelID, LabelID, FalseNum, OutputID, max(Output)),cv.resize(ShowImg, (48, 36)))
+                FalseNum += 1
 
             # 存储评估的数据
             Outputs.append(Output)

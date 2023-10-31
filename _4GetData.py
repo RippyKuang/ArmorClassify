@@ -338,8 +338,8 @@ if __name__ == "__main__":
     # ImgPath = r"E:\718\Code\AI\NewClassify\Dataset\DatasetSource"
     # LabelPath = r"E:\718\Code\AI\NewClassify\Dataset\DatasetSource"
     # 西南交大
-    ImgPath = r"E:\718\Code\AI\NewClassify\Dataset\DatasetSource\GKD\data"
-    LabelPath = r"E:\718\Code\AI\NewClassify\Dataset\DatasetSource\GKD\data"
+    ImgPath = r"/home/kuang/project/StandardDataset/HERO/HERO-22/OTH/Armor"
+    LabelPath = r"/home/kuang/project/StandardDataset/HERO/HERO-22/OTH/Armor"
 
     ImgList = []
     LabelList = []

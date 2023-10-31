@@ -12,17 +12,17 @@ import torch.nn as nn
 import numpy as np
 
 class InvertedResidual(nn.Module):
-    def __init__(self,in_channels,out_channels,expand_ratio=9):
+    def __init__(self,in_channels,out_channels,expand_ratio=9,_stride=2):
         super().__init__()
         hidden_dim=int(in_channels*expand_ratio)# 增大（减小）通道数
-
+        self.stride= _stride
         self.conv=nn.Sequential(
                 # point wise conv
                 nn.Conv2d(in_channels,hidden_dim,kernel_size=1,stride=1,padding=0,groups=1,bias=False),
                 nn.BatchNorm2d(hidden_dim),
                 nn.ReLU6(inplace=True),
                 # depth wise conv
-                nn.Conv2d(hidden_dim,hidden_dim,kernel_size=3,stride=2,padding=1,groups=hidden_dim,bias=False),
+                nn.Conv2d(hidden_dim,hidden_dim,kernel_size=3,stride=_stride,padding=1,groups=hidden_dim,bias=False),
                 nn.BatchNorm2d(hidden_dim),
                 nn.ReLU6(inplace=True),
                 # point wise conv,线性激活（不加ReLU6）
@@ -30,12 +30,79 @@ class InvertedResidual(nn.Module):
                 nn.BatchNorm2d(out_channels)
                 )
     def forward(self,x):
-        
-        return self.conv(x)
+        if self.stride==1:
+            return self.conv(x)+x
+        else:
+            return self.conv(x)
+class dw_conv(nn.Module):
+    def __init__(self, nin, nout):
+        super(dw_conv, self).__init__()
+        self.dim=nout
+        self.depthwise = nn.Conv2d(nin, nin, kernel_size=3, padding=1, groups=nin)
+        self.pointwise = nn.Conv2d(nin, nout, kernel_size=1)
+        self.bn = nn.BatchNorm2d(self.dim)
+    def forward(self, x):
+        out = self.depthwise(x)
+        out = self.pointwise(out)
+        out = self.bn(out)
+        out = nn.ReLU(inplace=True)(out)
+        return out
+
+class BinNet(nn.Module):
+    def __init__(self):
+        super(BinNet, self).__init__()
+        self.conv = BinNet.conv_block(1, 6, 3, Padding=1) 
+        self.Pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.invert_1 = InvertedResidual(6,6,2,1)
+        self.invert_1.to('cuda')
+        self.Pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.dw = dw_conv(6,12)
+        self.dw.to('cuda')
+        self.invert_2 = InvertedResidual(12,12,2)
+        self.invert_2.to('cuda')
+      
+        self.FC = BinNet.fc_block(20,"fc")
+        self.FC_End = nn.LazyLinear(2)
+    def fc_block(NodesNum, Name, DropRatio=0.5):
+        return nn.Sequential(OrderedDict([
+            # 第一次卷积
+            (
+                Name + "fc",
+                nn.LazyLinear(NodesNum)
+            ),
+            # Relu激活
+            (Name + "relu", nn.ReLU(inplace=True)),
+            # Gelu激活
+            # (Name + "Gelu", nn.GELU()),
+            #Dropout
+            (Name + "dropout", nn.Dropout(DropRatio)),
+        ]))
+    def conv_block(In_Channels, Features,  Kernel_Size, Padding=0):
+        return nn.Sequential(OrderedDict([
+            # 第一次卷积
+            (
+                 "conv",
+                nn.Conv2d(In_Channels, Features, kernel_size=Kernel_Size, padding=Padding, bias=True)  # 这里注意可以改是否要加b
+            ),
+            # batch Normal处理数据分布
+            ("norm", nn.BatchNorm2d(Features)),
+            # Relu激活
+            ( "relu", nn.ReLU(inplace=True)),
+            
+        ]))
+
+    def forward(self,x):
+        x=self.Pool1(self.conv(x))
+        x=self.Pool2(self.invert_1(x))
+        x=self.invert_2(self.dw(x))
+        x=nn.Flatten()(x)
+        x=self.FC_End(self.FC(x))
+        return x
+
 
 
 class ClassifyNet(nn.Module):
-    def __init__(self, In_Channels, Out_Channels,device, file_path, Features=64, fcNodes = 80, LastLayerWithAvgPool = False):
+    def __init__(self, In_Channels, Out_Channels,device, file_path, Features=64, fcNodes = 60, LastLayerWithAvgPool = False):
         super(ClassifyNet, self).__init__()
         self.file_path = file_path
         self.device = device
@@ -43,14 +110,12 @@ class ClassifyNet(nn.Module):
         # 特征提取过程
         # 第一层卷积
         self.Conv1 = ClassifyNet.block(In_Channels, Features, "Conv1",Kernel_Size = 5,Padding=2)
-        self.Pool1 = nn.AvgPool2d(kernel_size=2, stride=2)#上交采用的是平均池化，但是平均池化保留的是背景，最大保留的是纹理，我不理解为什么用平均
+        self.Pool1 = nn.MaxPool2d(kernel_size=2, stride=2)#上交采用的是平均池化，但是平均池化保留的是背景，最大保留的是纹理，我不理解为什么用平均
         # 第二层卷积
-      
-        self.bottleneck1 = InvertedResidual(In_Channels, Features)
-      
+        self.Conv2 = ClassifyNet.block(Features, Features * 2 , "Conv2",Kernel_Size = 3,Padding=1)
+        self.Pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
         # 第三层卷积
-        self.bottleneck2 =InvertedResidual(Features *2, Features * 2 ,Features*3)
-        self.Conv3 = ClassifyNet.block(Features * 2, Features * 4, "Conv3",Kernel_Size = 3)
+        self.Conv3 = ClassifyNet.block(Features * 2, Features * 4 , "Conv3",Kernel_Size = 3,Padding=1)
         # 拉平
         self.Flatten = nn.Flatten()
         # 全局平均池化
@@ -128,14 +193,11 @@ class ClassifyNet(nn.Module):
         # 下采样
         self.Conv1.parameters()
         Conv1 = self.Conv1(x)
-        bottleneck = self.bottleneck1(x)
-        pool1 = self.Pool1(Conv1)
-        Conv2 = self.bottleneck2(torch.cat([pool1,bottleneck],dim=1))
-        Conv3 = self.Conv3(Conv2)
+        Conv2 = self.Conv2(self.Pool1(Conv1))
+        Conv3 = self.Conv3(self.Pool2(Conv2))
         # 判断是否使用全局平均池化
         if self.LastLayerWithAvgPool:
             AdaptiveAvgPool = self.AdaptiveAvgPool(Conv3)
-        
             FC1 = self.FC1(AdaptiveAvgPool)
             Output = self.FC_End(FC1)
         else:
@@ -144,6 +206,161 @@ class ClassifyNet(nn.Module):
             Output = self.FC_End(FC1)
 
         return Output
+
+    def get_w(self,fp):
+        """
+        :param fp: 文件句柄
+        :return: 卷积层的权重
+        """
+        list = fp.readlines()
+        for i in range(0, len(list)):
+            list[i] = float(list[i].rstrip('\n'))
+        weight = torch.Tensor(np.zeros([int(list[1]), int(list[0]), int(list[2]), int(list[3])]))
+        index = 0
+        for i in range(weight.shape[1]):
+            for j in range(weight.shape[0]):
+                for k in range(weight.shape[2]):
+                    for l in range(weight.shape[3]):
+                        weight[j, i, k, l] = list[index + 4]
+                        # print(list[index + 4])
+                        index += 1
+
+        return weight
+
+    def get_b(self, fp):
+        """
+        :param fp: 文件句柄
+        :return: 卷积层的偏差
+        """
+        list = fp.readlines()
+        for i in range(0, len(list)):
+            list[i] = float(list[i].rstrip('\n'))
+        bias = torch.Tensor(np.zeros([int(list[0])]))
+        for i in range(bias.shape[0]):
+            bias[i] = list[i + 1]
+
+
+        return bias
+
+    def get_fc_w(self,fp):
+        """
+        :param fp:文件句柄
+        :return: 全连接层的权重
+        """
+        list = fp.readlines()
+        for i in range(0, len(list)):
+            list[i] = float(list[i].rstrip('\n'))
+        weight = torch.Tensor(np.zeros([int(list[1]), int(list[0])])) # (60,560)，nn.Linear乘上的是权重的转置
+        index = 0
+        for i in range(weight.shape[0]):
+            for j in range(weight.shape[1]):
+                weight[i, j] = list[index + 2]
+                # print(list[index + 4])
+                index += 1
+
+        return weight
+
+    def get_fc_b(self, fp):
+        """
+        :param fp: 文件句柄
+        :return: 全连接层的偏差
+        """
+        list = fp.readlines()
+        for i in range(0, len(list)):
+            #去除最后的换行符
+            list[i] = float(list[i].rstrip('\n'))
+        bias = torch.Tensor(np.zeros([int(list[0])]))
+        # print("bia shape")
+        for i in range(bias.shape[0]):
+            bias[i] = list[i + 1]
+
+        return bias
+
+
+    #权重初始化
+    def Para_Init(self):
+        """
+        :return: None
+        """
+        for name, parameters in self.named_parameters():
+            # 读取卷积层参数
+            # conv1
+            # print(name.split("."))
+            moedl_dict = self.state_dict()
+            # print(moedl_dict)
+            if (name.split(".")[1] == "Conv1conv1"):#这里读取参数只能通过对中间段进行切片进行，因为中间还有BN层
+                if(name.split(".")[2] == "weight"):
+                    Full_Path = os.path.join(self.file_path,'conv1_w')
+                    with open(Full_Path, mode="r") as fp:
+                        parameters.data = torch.nn.Parameter(self.get_w(fp))
+                        parameters.requires_grad = False
+
+                if (name.split(".")[2] == "bias"):
+                    Full_Path = os.path.join(self.file_path, 'conv1_b')
+                    with open(Full_Path, mode="r") as fp:
+                        parameters.data = torch.nn.Parameter(self.get_b(fp))
+                        parameters.requires_grad = False
+                        parameters.data.to(self.device)
+                        # print(list(self.Conv1[0].parameters())[0])
+
+            #conv2
+            if (name.split(".")[1] == "Conv2conv1"):
+                if (name.split(".")[2] == "weight"):
+                    Full_Path = os.path.join(self.file_path, 'conv2_w')
+                    with open(Full_Path, mode="r") as fp:
+                        parameters.data = torch.nn.Parameter(self.get_w(fp))
+                        parameters.requires_grad = False
+                        parameters.data.to(self.device)
+                if (name.split(".")[2] == "bias"):
+                    Full_Path = os.path.join(self.file_path, 'conv2_b')
+                    with open(Full_Path, mode="r") as fp:
+                        parameters.data = torch.nn.Parameter(self.get_b(fp))
+                        parameters.requires_grad = False
+                        parameters.data.to(self.device)
+            #conv3
+            if (name.split(".")[1] == "Conv3conv1"):
+                if (name.split(".")[2] == "weight"):
+                    Full_Path = os.path.join(self.file_path, 'conv3_w')
+                    with open(Full_Path, mode="r") as fp:
+                        parameters.data = torch.nn.Parameter(self.get_w(fp))
+                        parameters.requires_grad = False
+                        parameters.data.to(self.device)
+                if (name.split(".")[2] == "bias"):
+                    Full_Path = os.path.join(self.file_path, 'conv3_b')
+                    with open(Full_Path, mode="r") as fp:
+                        parameters.data = torch.nn.Parameter(self.get_b(fp))
+                        parameters.requires_grad = False
+                        parameters.data.to(self.device)
+
+            # fc1
+            # if (name.split(".")[1] == "0"):
+            #     if (name.split(".")[2] == "weight"):
+            #         Full_Path = os.path.join(self.file_path, 'fc1_w')
+            #         with open(Full_Path, mode="r") as fp:
+            #             parameters.data = torch.nn.Parameter(self.get_fc_w(fp))
+            #             parameters.requires_grad = False
+            #             parameters.data.to(self.device)
+            #     if (name.split(".")[2] == "bias"):
+            #         Full_Path = os.path.join(self.file_path, 'fc1_b')
+            #         with open(Full_Path, mode="r") as fp:
+            #             parameters.data = torch.nn.Parameter(self.get_fc_b(fp))
+            #             parameters.requires_grad = False
+            #             parameters.data.to(self.device)
+            #
+            # # fc2
+            # if (name.split(".")[1] == "3"):
+            #     if (name.split(".")[2] == "weight"):
+            #         Full_Path = os.path.join(self.file_path, 'fc2_w')
+            #         with open(Full_Path, mode="r") as fp:
+            #             parameters.data = torch.nn.Parameter(self.get_fc_w(fp))
+            #             parameters.requires_grad = False
+            #             parameters.data.to(self.device)
+            #     if (name.split(".")[2] == "bias"):
+            #         Full_Path = os.path.join(self.file_path, 'fc2_b')
+            #         with open(Full_Path, mode="r") as fp:
+            #             parameters.data = torch.nn.Parameter(self.get_fc_b(fp))
+            #             parameters.requires_grad = False
+            #             parameters.data.to(self.device)
 # 残差块类
 class Residual(nn.Module):  #@save
     def __init__(self, input_channels, num_channels,

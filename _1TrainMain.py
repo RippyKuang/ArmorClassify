@@ -11,6 +11,8 @@ from _2Dataset_Load import *
 from _3ClassifyNet import *
 from _0Utility import *
 
+import torchsummary
+
 # 选取要使用的网络
 UsingNet = "Net1"  # Net1是全连接神经网络、Net2是带残差层的网络
 
@@ -137,11 +139,11 @@ if __name__ == "__main__":
     # 记录版本号
     Version = 1.0
     # 存储网络的相关参数
-    ParaDic = {"Epoch": 50,
-               "Lr": 0.0001,# 0.0009
-               "Batchsize": 128,
-               "LrUpdate_Ratio": 0.2,# 0.2
-               "LrUpdate_Epoch": 60,
+    ParaDic = {"Epoch": 500,
+               "Lr": 0.0007,# 0.0009
+               "Batchsize": 32,
+               "LrUpdate_Ratio": 0.5,# 0.2
+               "LrUpdate_Epoch": 100,
                "TestEpoch": 1,
                "SaveEpoch": 5,
                "Device": torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -159,7 +161,7 @@ if __name__ == "__main__":
     TrainDataset, TrainDataLoader, ValDataset, ValDataLoader = PipeDatasetLoader(DatasetPath, ParaDic["Batchsize"], False,TrainTransform=TrainImg_Transform, ValTransform=ValImg_Transform)
 
     #从此处开始可迭代
-    for feature in [8]:
+    for feature in [6]:
         # 初始化日志系统
         Log = Logger(os.path.join(LogOutputPath, str(Version) + "_" + str(ParaDic.get("Epoch")) + ".log"))
 
@@ -167,8 +169,7 @@ if __name__ == "__main__":
         # SJ网络
         # 实例化对象
         if UsingNet == "Net1":
-            Net = ClassifyNet(In_Channels=1, Out_Channels=9, file_path=None, device=ParaDic.get("Device"),
-                                   Features=feature, LastLayerWithAvgPool=True)
+            Net = BinNet()
             # Classify.Para_Init()
             Net.to(ParaDic.get("Device"))
 
@@ -177,25 +178,14 @@ if __name__ == "__main__":
             Net = HitNet(In_Channels=1, Out_Channels=9,Features=feature)
             Net.to(ParaDic.get("Device"))
 
-
-        # 定义代价函数和优化器，并且将他们转移到GPU中
+       
+        torchsummary.summary(Net.cuda(), (1, 18,24))
         Criterion = nn.CrossEntropyLoss().to(ParaDic.get("Device"))
-        # 初始化优化器
-        # Optimizer = torch.optim.Adam(Classify.parameters(), lr=ParaDic.get("Lr"))
+      
         Optimizer = torch.optim.Adam(Net.parameters(), lr=ParaDic.get("Lr"))
-        # 新的优化器
-        # Optimizer = torch.optim.AdamW(Net.parameters(), lr=ParaDic.get("Lr"))
-        # Optimizer = torch.optim.Adam([{'params':Classify.Conv3.parameters(),'lr':Lr / 10},
-        #                               {'params':Classify.classifier.parameters(),'lr':Lr}
-        #                              ])  # 第一个参数是可用于迭代优化的参数或者定义参数组的dicts
-        # 配置学习率的更新
-        # Lr_Update = torch.optim.lr_scheduler.ReduceLROnPlateau(Optimizer, 'max', factor=0.5, patience=10 )
-        # 按照比例更新学习率
+    
         Lr_Update = torch.optim.lr_scheduler.StepLR(Optimizer, ParaDic.get("LrUpdate_Epoch"), gamma=ParaDic.get("LrUpdate_Ratio"))
-        # 一种新的学习率更新策略
-        # Lr_Update = torch.optim.lr_scheduler.CyclicLR(Optimizer, base_lr=0.001, max_lr=0.0011, step_size_up=75,
-        #                                               step_size_down=75, mode='triangular', cycle_momentum=False)
-
+       
         for epoch in range(1, ParaDic.get("Epoch") + 1):
             train(epoch)
             if epoch % ParaDic.get("TestEpoch") == 0 or epoch == 1:

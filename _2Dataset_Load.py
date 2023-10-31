@@ -16,15 +16,13 @@ import numpy as np
 # 用os处理报错
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
-Input_Img_Size = (36, 48)
+Input_Img_Size = (18, 24)
 # 训练数据集原图片的转换
 TrainImg_Transform = transforms.Compose([
    
-    transforms.Resize(Input_Img_Size),
-  
-    transforms.RandomRotation(degrees=30),  # 逆时针为正方向
-
-    transforms.ColorJitter(brightness=(0.2)),  # (8, 12)超亮
+    transforms.RandomAffine(degrees=(-40,40),translate=(0.3, 0.3), scale=(1.,1.), shear=20),
+    transforms.RandomResizedCrop(Input_Img_Size, scale=(0.45, 1.), interpolation=Image.BILINEAR),
+    transforms.ColorJitter(brightness=(0.7)),  # (8, 12)超亮
     transforms.ToTensor(),
   
     transforms.Normalize(mean=[0.444], std=[0.225]),
@@ -59,7 +57,8 @@ class PipeDataset(Dataset):
         FusionImg = self.ImgTransform(FusionImg)
         #读取图片的标签
         Label = int(SampleFolderPath.split("/")[2].split(".")[0].split("_")[1])
-
+        if(Label!=0):
+            Label=1
         # %% 显示Sample
         if self.ShowSample:
             plt.figure(self.SampleFolders[item])

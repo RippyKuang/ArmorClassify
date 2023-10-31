@@ -67,6 +67,7 @@ def dataprocess(Datas):
     :return: 分割后统一存放的列表
     """
     # 将训练集的损失按照学习率的不同分隔开
+   
     DifferentLrs = np.unique(Datas[..., 1])
     # 分割数据
     NewData = []
@@ -75,6 +76,7 @@ def dataprocess(Datas):
         Data = Datas[Index, :][0]
         NewData.append(Data)
 
+   
     return NewData
 
 def get_cmap(n, name='rainbow'):
@@ -87,7 +89,7 @@ def get_cmap(n, name='rainbow'):
 
 
 
-def Visualization(TrainDataList, ValDataList, XLabel, YLabel, Title, LabelPosition, LogNames, splitwithLr=True ):
+def Visualization(TrainDataList, ValDataList, XLabel, YLabel, Title, LabelPosition, LogNames):
     """
     :param TrainDatas: 训练集的数据集合
     :param ValDatas: 测试集的数据集合
@@ -101,13 +103,9 @@ def Visualization(TrainDataList, ValDataList, XLabel, YLabel, Title, LabelPositi
     """
     # 获取颜色
     cmap = get_cmap(len(ValDataList))
-    for num, (TrainDatas, ValDatas, LogName) in enumerate(zip(TrainDataList, ValDataList, LogNames)):
-        if splitwithLr:
-            for TrainData in TrainDatas:
-                plt.plot(TrainData[...,0],TrainData[...,2],label = None)
-        else:
-            plt.plot(TrainDatas[..., 0], TrainDatas[..., 2], label=None)
+    for num, (TrainDatas, ValDatas, LogName) in enumerate(zip(TrainDataList, ValDataList, LogNames)):    
 
+        plt.plot(TrainDatas[..., 0], TrainDatas[..., 2], label=None)
         plt.plot(ValDatas[...,0],ValDatas[...,2],label = "Val" + LogName, color=cmap(num))
 
     #设置x，y轴标签
@@ -133,16 +131,17 @@ if __name__ == "__main__":
         LogNames.append(logfile.split("_")[0])
         with open(os.path.join(LogFolder, logfile), "r") as log:
             lines = log.readlines()
-            TrainAccuracys, TrainLosses, ValAccuracys, ValLosses = getdata(lines)
+            TrainAccuracys, TrainLosses, ValAccuracys, ValLosses = getdata(lines) #list of tuple
             if SplitWithLr:
                 # 根据学习率对数据进行划分
-                NewTrainLosses = dataprocess(TrainLosses)
-                NewTrainAccuracys = dataprocess(TrainAccuracys)
-                TrainLossesList.append(NewTrainLosses)
-                TrainAccuracyList.append(NewTrainAccuracys)
+                
+                TrainLossesList = dataprocess(TrainLosses)#list of list of tuple
+                TrainAccuracyList = dataprocess(TrainAccuracys)
+                # TrainLossesList.append(NewTrainLosses)#list of list of list of tuple
+                # TrainAccuracyList.append(NewTrainAccuracys)
             else:
                 # 若不用学习率进行分割则直接不处理放入列表中
-                TrainLossesList.append(TrainLosses)
+                TrainLossesList.append(TrainLosses)#list of list of tuple
                 TrainAccuracyList.append(TrainAccuracys)
             # 单个数据存入列表
             ValLossesList.append(ValLosses)
@@ -150,7 +149,8 @@ if __name__ == "__main__":
 
 
     #绘制相关曲线
+    print(TrainLossesList)
     Visualization(TrainLossesList, ValLossesList, "Loss", "Epoch", "Loss-Curve", "upper right",
-                  LogNames, False)
+                  LogNames)
     Visualization(TrainAccuracyList, ValAccuracyList, "Accuracy", "Epoch", "Accuracy-Curve",
-                  'lower right', LogNames, False)
+                  'lower right', LogNames)
