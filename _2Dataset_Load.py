@@ -19,13 +19,12 @@ os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 Input_Img_Size = (18, 24)
 # 训练数据集原图片的转换
 TrainImg_Transform = transforms.Compose([
-   
-    transforms.RandomAffine(degrees=(-40,40),translate=(0.3, 0.3), scale=(1.,1.), shear=20),
-    transforms.RandomResizedCrop(Input_Img_Size, scale=(0.45, 1.), interpolation=Image.BILINEAR),
-    transforms.ColorJitter(brightness=(0.7)),  # (8, 12)超亮
-    transforms.ToTensor(),
-  
-    transforms.Normalize(mean=[0.444], std=[0.225]),
+   transforms.GaussianBlur(5,( 0.1,5)),
+   transforms.RandomAffine(degrees=(-40,40),shear=(-50,50,-30,30)),
+   transforms.RandomResizedCrop(Input_Img_Size, scale=(0.6, 1.), interpolation=Image.BILINEAR),
+   transforms.ColorJitter(brightness=(0.7)),  # (8, 12)超亮
+   transforms.ToTensor(),
+   transforms.Normalize(mean=[0.444], std=[0.225]),
 ])
 
 # 测试数据集原图片的转换

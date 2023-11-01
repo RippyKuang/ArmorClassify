@@ -5,14 +5,34 @@
 
 @Author:马铭泽
 """
+import nntplib
 import os
 from collections import OrderedDict
 import torch
 import torch.nn as nn
 import numpy as np
+class SqueezeExcitation(nn.Module):
+    
+    def __init__(self, input_c: int, squeeze_factor: int = 4):
+        super(SqueezeExcitation, self).__init__()
+      
+        squeeze_c = input_c // squeeze_factor
+      
+        self.fc1 = nn.Conv2d(input_c, squeeze_c, 1)
+        self.fc2 = nn.Conv2d(squeeze_c, input_c, 1)
+
+    def forward(self, x):
+      
+        scale = nn.AdaptiveAvgPool2d((1, 1))(x)
+        scale = self.fc1(scale)
+        scale = nn.ReLU( inplace=True)(scale)
+        scale = self.fc2(scale)
+       
+        scale = nn.Hardsigmoid(inplace=True)(scale)
+        return scale * x        
 
 class InvertedResidual(nn.Module):
-    def __init__(self,in_channels,out_channels,expand_ratio=9,_stride=2):
+    def __init__(self,in_channels,out_channels,expand_ratio=9,_stride=2,is_SE=False):
         super().__init__()
         hidden_dim=int(in_channels*expand_ratio)# 增大（减小）通道数
         self.stride= _stride
@@ -26,14 +46,21 @@ class InvertedResidual(nn.Module):
                 nn.BatchNorm2d(hidden_dim),
                 nn.ReLU6(inplace=True),
                 # point wise conv,线性激活（不加ReLU6）
+                )
+        self.pw = nn.Sequential(
                 nn.Conv2d(hidden_dim,out_channels,kernel_size=1,stride=1,padding=0,groups=1,bias=False),
                 nn.BatchNorm2d(out_channels)
                 )
+        self.se = SqueezeExcitation(in_channels*expand_ratio)
+        self.is_se = is_SE
     def forward(self,x):
+        conv_x = self.conv(x)
+        if self.is_se ==1:
+            conv_x = self.se(conv_x)
         if self.stride==1:
-            return self.conv(x)+x
+            return self.pw(conv_x)+x
         else:
-            return self.conv(x)
+            return self.pw(conv_x)
 class dw_conv(nn.Module):
     def __init__(self, nin, nout):
         super(dw_conv, self).__init__()
@@ -51,51 +78,40 @@ class dw_conv(nn.Module):
 class BinNet(nn.Module):
     def __init__(self):
         super(BinNet, self).__init__()
+
         self.conv = BinNet.conv_block(1, 6, 3, Padding=1) 
-        self.Pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.invert_1 = InvertedResidual(6,6,2,1)
-        self.invert_1.to('cuda')
-        self.Pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.dw = dw_conv(6,12)
-        self.dw.to('cuda')
-        self.invert_2 = InvertedResidual(12,12,2)
-        self.invert_2.to('cuda')
-      
+        self.Pool1 = nn.AvgPool2d(kernel_size=2, stride=2)
+
+        self.invert_1 = InvertedResidual(6,6,2,1,True)
+        self.Pool2 = nn.AvgPool2d(kernel_size=2, stride=2)
+
+        self.dw_1 = dw_conv(6,12)
+        self.invert_2 = InvertedResidual(12,12,2,1,True)
+        self.Pool3 = nn.AvgPool2d(kernel_size=2, stride=2)
+
+        self.dw_3 = dw_conv(12,48)
+        self.AdaptiveAvgPool = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)), nn.Flatten())
         self.FC = BinNet.fc_block(20,"fc")
         self.FC_End = nn.LazyLinear(2)
     def fc_block(NodesNum, Name, DropRatio=0.5):
-        return nn.Sequential(OrderedDict([
-            # 第一次卷积
-            (
-                Name + "fc",
-                nn.LazyLinear(NodesNum)
-            ),
-            # Relu激活
-            (Name + "relu", nn.ReLU(inplace=True)),
-            # Gelu激活
-            # (Name + "Gelu", nn.GELU()),
-            #Dropout
-            (Name + "dropout", nn.Dropout(DropRatio)),
-        ]))
+        return nn.Sequential(
+            nn.LazyLinear(NodesNum),
+            nn.ReLU(inplace=True),
+            nn.Dropout(DropRatio),
+        )
     def conv_block(In_Channels, Features,  Kernel_Size, Padding=0):
-        return nn.Sequential(OrderedDict([
-            # 第一次卷积
-            (
-                 "conv",
-                nn.Conv2d(In_Channels, Features, kernel_size=Kernel_Size, padding=Padding, bias=True)  # 这里注意可以改是否要加b
-            ),
-            # batch Normal处理数据分布
-            ("norm", nn.BatchNorm2d(Features)),
-            # Relu激活
-            ( "relu", nn.ReLU(inplace=True)),
-            
-        ]))
+        return nn.Sequential(
+            nn.Conv2d(In_Channels, Features, kernel_size=Kernel_Size, padding=Padding, bias=True),
+            nn.BatchNorm2d(Features),
+            nn.ReLU(inplace=True),
+        )
 
     def forward(self,x):
         x=self.Pool1(self.conv(x))
         x=self.Pool2(self.invert_1(x))
-        x=self.invert_2(self.dw(x))
-        x=nn.Flatten()(x)
+        x=self.Pool3(self.invert_2(self.dw_1(x)))
+        x=self.dw_3(x)
+        x=self.AdaptiveAvgPool(x)
         x=self.FC_End(self.FC(x))
         return x
 
