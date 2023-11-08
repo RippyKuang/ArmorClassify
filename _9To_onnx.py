@@ -12,6 +12,7 @@ from _3ClassifyNet import *
 from _2Dataset_Load import *
 import onnxruntime as ort
 from _1TrainMain import UsingNet
+import torchsummary
 
 #生成onnx
 def createOnnx(ptModel, onnxName):
@@ -26,12 +27,22 @@ def createOnnx(ptModel, onnxName):
     # 输入模型地址
     FullModelPath = "Output/model"
     # 实例化网络
+    Input_Tensor = torch.randn([1, 1, 36, 48]).to(device)
     if UsingNet == "Net1":
         # TODO:记着换了模型可能要改输出个数
-        Net = ClassifyNet(In_Channels=1, Out_Channels=9, Features=6,device=device,file_path=None,LastLayerWithAvgPool=True).to(device)
-        Net.load_state_dict(torch.load(os.path.join(FullModelPath, ptModel), map_location=device))
-
+       # Net = ClassifyNet(In_Channels=1, Out_Channels=9, Features=6,device=device,file_path=None,LastLayerWithAvgPool=False).to(device)
+        Net = BinNet().to(device)
+        dict = torch.load(os.path.join(FullModelPath, ptModel), map_location=device)
+       
+        del dict["FC.0.weight"] 
+        del dict["FC.0.bias"]
+        del dict["FC_End.weight"]
+        del dict["FC_End.bias"]
+        torchsummary.summary(Net.cuda(), (1, 36,48))
+        Net.load_state_dict(dict)
+        
         Net.eval()
+        #Net(Input_Tensor)
 
     if UsingNet == "Net2":
         # TODO:记着换了模型可能要改输出个数
@@ -42,7 +53,7 @@ def createOnnx(ptModel, onnxName):
         Net.eval()
 
     # input
-    Input_Tensor = torch.randn([1, 1, 36, 48]).to(device)
+   
     input_names = ["input_0"]
     output_names = ["output_0"]
     out_path = onnxName
@@ -53,8 +64,7 @@ def createOnnx(ptModel, onnxName):
         Input_Tensor,# TODO:这个东西突然有点迷
         out_path,
         input_names=input_names,
-        output_names=output_names,
-        dynamic_axes={'input_0': [2, 3]}
+        output_names=output_names
     )
 
 
@@ -74,21 +84,25 @@ def runOnnx(Input, ModelName):
     return Outputs
 
 if __name__ == "__main__":
-    Create = "test"
+    Create = "True"
     if Create=="False":
         # 创建onnx
-        createOnnx('1.0_0001.pt', "avg_this.onnx")
+        createOnnx('step_3.pt', "ksy.onnx")
     elif Create =="True":
         # 测试onnx
-        OnnxName = "this.onnx"
-        TestPath = r"Dataset/Val"
+        OnnxName = "model.onnx"
+        TestPath = r"Dataset/result"
 
         # 初始化模型
         Model = onnx.load(OnnxName)
         onnx.checker.check_model(Model)
         Ort_session = ort.InferenceSession(OnnxName)
 
+        OutputFolderName = "Output_" + str(0)
+        OutputFolderPath = os.path.join("Output/testImg", OutputFolderName)
+        os.makedirs(OutputFolderPath, exist_ok=True)
 
+      
         # 读取图片
         Imgs = os.listdir(TestPath)
         for img in Imgs:
@@ -96,13 +110,12 @@ if __name__ == "__main__":
             img_temp = Img.copy()
             img_temp = ValImg_Transform(img_temp).view(1,1,36,-1)
             Output = Ort_session.run(None, {'input_0': img_temp.numpy()})
-            print("Output", Output[0][0])
-            print("Class", np.argmax(Output[0][0]))
-            ShowImg = np.array(Img.resize((640, 480)))
-            cv.putText(ShowImg, 'Predict:' + str(np.argmax(Output[0][0])), (120, 30), cv.FONT_HERSHEY_SIMPLEX,
-                       0.7, (255, 0, 0), 1)
-            cv.imshow("Img",ShowImg)
-            cv.waitKey(0)
+            Label = int(os.path.join(TestPath, img).split("/")[2].split(".")[0].split("_")[3])
+          
+            if Label == np.argmax(Output[0][0]):
+                Img.save(OutputFolderPath + r"/{0}".format(img))
+
+           
     else:
         input_data1 = np.random.rand(1, 1, 256, 256).astype(np.float32)
         input_data2 = np.random.rand(1, 1, 512, 512).astype(np.float32)

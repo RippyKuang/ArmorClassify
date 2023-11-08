@@ -117,7 +117,7 @@ if __name__ == "__main__":
 
     # 读取模型文件
     ModelPath = r"./Output/model"
-    Models = ["1.0_0045.pt"]
+    Models = ["1.0_0054.pt"]
 
     # 存储所有的曲线绘制数据
     OutputList = []

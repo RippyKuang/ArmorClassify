@@ -6,11 +6,13 @@
 @Author:马铭泽
 """
 import os, logging
+from sklearn.multioutput import ClassifierChain
 import torch
 from _2Dataset_Load import *
 from _3ClassifyNet import *
 from _0Utility import *
-
+import torch.nn.functional as F
+from torchvision import models, transforms
 import torchsummary
 
 # 选取要使用的网络
@@ -37,15 +39,30 @@ def train(Epoch, Threshold=False, Ratio=0.6):
         InputImg = InputImg.float().to(ParaDic.get("Device"))
         Label = Label.to(ParaDic.get("Device"))
         # 权重清零
-        Optimizer.zero_grad()
+      
+     #   with torch.no_grad():
+            #teacher_preds = teacher_Net(InputImg)
+
+
         with torch.set_grad_enabled(True):
             torch.cuda.empty_cache()
-            # OutputImg = Classify(InputImg)
+            if epoch<50:
+                a = 0.7
+            elif epoch<100:
+                a=0.5
+            elif epoch<150:
+                a=0.3
+            elif epoch<200:
+                a=0.1
+            else:
+                a=0
             OutputImg = Net(InputImg)
-            # 判断是否更新
-            # print(Classify.Conv1.Conv1conv1.weight.data.requires_grad)
+          
             BatchLoss = Criterion(OutputImg, Label)
-            # 反向传播
+           
+         #   d_loss = soft_loss(F.log_softmax(OutputImg/temp,dim=1),F.softmax(teacher_preds/temp,dim=1))*temp*temp
+          #  loss= a*BatchLoss+(1-a)*d_loss
+            Optimizer.zero_grad()
             BatchLoss.backward()
             # 权重更新
             Optimizer.step()
@@ -75,11 +92,11 @@ def train(Epoch, Threshold=False, Ratio=0.6):
     # 计算平均损失
     Average_Train_Loss = Train_Loss / TrainDataset.__len__() * ParaDic.get("Batchsize")
     print("Train Loss is", Average_Train_Loss, "train Accuracy is", Train_Accuracy, flush=True)
-    Log.logger.warning('\tTrain\tEpoch:{0:04d}\tLearningRate:{1:08f}\tLoss:{2:08f}\tAccuracy:{3:08f}'.format(
+    Log.logger.warning('\tTrain\tEpoch:{0:04d}\tLearningRate:{1:08f}\tLoss:{2:08f}\tAccuracy:{3:08f}\tAlpha:{0:04d}'.format(
         Epoch,
         Lr_Update.get_last_lr()[0],
         Average_Train_Loss,
-        Train_Accuracy))
+        Train_Accuracy,a))
 
 
 def test(Epoch, Threshold=False, Ratio=0.6):
@@ -139,13 +156,13 @@ if __name__ == "__main__":
     # 记录版本号
     Version = 1.0
     # 存储网络的相关参数
-    ParaDic = {"Epoch": 500,
-               "Lr": 0.0007,# 0.0009
-               "Batchsize": 32,
+    ParaDic = {"Epoch": 1000,
+               "Lr": 0.0001,# 0.0009
+               "Batchsize":32,
                "LrUpdate_Ratio": 0.5,# 0.2
-               "LrUpdate_Epoch": 100,
+               "LrUpdate_Epoch": 150,
                "TestEpoch": 1,
-               "SaveEpoch": 5,
+               "SaveEpoch": 1,
                "Device": torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
                }
 
@@ -159,7 +176,8 @@ if __name__ == "__main__":
     os.makedirs(OutputPath, exist_ok=True)
     # 读取数据集
     TrainDataset, TrainDataLoader, ValDataset, ValDataLoader = PipeDatasetLoader(DatasetPath, ParaDic["Batchsize"], False,TrainTransform=TrainImg_Transform, ValTransform=ValImg_Transform)
-
+    temp = 7
+    alpha = [0.7,0.5,0.4,0.3,0.1,0.05,0]
     #从此处开始可迭代
     for feature in [6]:
         # 初始化日志系统
@@ -169,8 +187,21 @@ if __name__ == "__main__":
         # SJ网络
         # 实例化对象
         if UsingNet == "Net1":
-            Net = BinNet()
+           #Net = models.mobilenet_v2()
+            #print(Net)
+            # Net=models.mobilenet_v3_small(pretrained=False)
+            # Net.features[0][0] = nn.Conv2d(1 ,32, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+            # fc_features = Net.classifier[1].in_features
+            # Net.classifier[1] = nn.Linear(fc_features, 9) 
+           # teacher_Net=BinNet()
+           # teacher_Net.load_state_dict(torch.load("Output/model/step3.pt"))
             # Classify.Para_Init()
+            
+          #  teacher_Net.eval()
+           # teacher_Net.to(ParaDic.get("Device"))
+
+            Net = BinNet()
+           
             Net.to(ParaDic.get("Device"))
 
         # 本部网络
@@ -179,8 +210,9 @@ if __name__ == "__main__":
             Net.to(ParaDic.get("Device"))
 
        
-        torchsummary.summary(Net.cuda(), (1, 18,24))
+        torchsummary.summary(Net.cuda(), (1, 36,48))
         Criterion = nn.CrossEntropyLoss().to(ParaDic.get("Device"))
+        soft_loss = nn.KLDivLoss(reduction="batchmean")
       
         Optimizer = torch.optim.Adam(Net.parameters(), lr=ParaDic.get("Lr"))
     

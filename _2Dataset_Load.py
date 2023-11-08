@@ -16,13 +16,22 @@ import numpy as np
 # 用os处理报错
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
-Input_Img_Size = (18, 24)
+Input_Img_Size = (36, 48)
 # 训练数据集原图片的转换
 TrainImg_Transform = transforms.Compose([
-   transforms.GaussianBlur(5,( 0.1,5)),
-   transforms.RandomAffine(degrees=(-40,40),shear=(-50,50,-30,30)),
+   #transforms.GaussianBlur(5,( 0.1,5)),
+   transforms.RandomAffine(degrees=(-40,40),shear=(-30,30,-20,20)),
    transforms.RandomResizedCrop(Input_Img_Size, scale=(0.6, 1.), interpolation=Image.BILINEAR),
-   transforms.ColorJitter(brightness=(0.7)),  # (8, 12)超亮
+   transforms.ColorJitter(brightness=(0.4),contrast=0.1),  # (8, 12)超亮
+   transforms.ToTensor(),
+   transforms.Normalize(mean=[0.444], std=[0.225]),
+])
+
+TrainImg_TransformforSeven = transforms.Compose([
+   #transforms.GaussianBlur(5,( 0.1,5)),
+   transforms.RandomAffine(degrees=(-40,40),shear=(-30,30,-20,20)),
+   transforms.RandomResizedCrop(Input_Img_Size, scale=(0.6, 1.), interpolation=Image.BILINEAR),
+   transforms.ColorJitter(brightness=(0.4,1.4),contrast=0.1),  # (8, 12)超亮
    transforms.ToTensor(),
    transforms.Normalize(mean=[0.444], std=[0.225]),
 ])
@@ -53,12 +62,17 @@ class PipeDataset(Dataset):
         #读取图片
         FusionImg = Image.open(SampleFolderPath)
         #数据预处理
-        FusionImg = self.ImgTransform(FusionImg)
-        #读取图片的标签
         Label = int(SampleFolderPath.split("/")[2].split(".")[0].split("_")[1])
-        if(Label!=0):
-            Label=1
+        if Label!=7:
+            FusionImg = self.ImgTransform(FusionImg)
+        else:
+            FusionImg = TrainImg_TransformforSeven(FusionImg)
+        #读取图片的标签
+       
+       # Label = int(SampleFolderPath.split("/")[7].split(".")[0].split("_")[3])
+       
         # %% 显示Sample
+
         if self.ShowSample:
             plt.figure(self.SampleFolders[item])
             # 转化成数组然后取第一层
@@ -88,13 +102,14 @@ def PipeDatasetLoader(FolderPath, BatchSize=1, ShowSample=False, TrainTransform 
     # 获得经过转换后的训练数据集
     TrainDataset = PipeDataset(TrainFolderPath, TrainTransform,  ShowSample)
     # 将得到的训练数据集进行数据导入(数据集,每一次batch的数量,是否打乱顺序,当数据不够最后一次batch是否变小,线程数,设置为锁页内存可以让速度更快)
-    TrainDataLoader = DataLoader(TrainDataset, batch_size=BatchSize, shuffle=True, drop_last=False, num_workers=0,
+    TrainDataLoader = DataLoader(TrainDataset, batch_size=BatchSize, shuffle=True, drop_last=False, num_workers=8,
                                  pin_memory=True)
 
     # 对标签集进行处理,与训练集处理相同
     ValFolderPath = os.path.join(FolderPath, 'Val')
+ #   ValFolderPath ="/home/kuang/project/dataset_marker/dataset/result"
     ValDataset = PipeDataset(ValFolderPath, ValTransform,ShowSample)
-    ValDataLoader = DataLoader(ValDataset, batch_size=1, shuffle=False, drop_last=False, num_workers=0, pin_memory=True)
+    ValDataLoader = DataLoader(ValDataset, batch_size=1, shuffle=False, drop_last=False, num_workers=8, pin_memory=True)
     return TrainDataset, TrainDataLoader, ValDataset, ValDataLoader
 
 

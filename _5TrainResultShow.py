@@ -34,9 +34,10 @@ def getdata(DatainLines):
 
             # 获取准确度
             Accuracy = float(line.strip().split("\t")[5].split(":")[1])
-            TrainAccuracys.append(np.array([Epoch, Lr, Accuracy]))
+            if Accuracy>0.8:
+                TrainAccuracys.append(np.array([Epoch, Lr, Accuracy]))
 
-            if Loss < 1:
+            if Loss < 5:
                 TrainLosses.append(np.array([Epoch, Lr, Loss]))
 
         # 切分验证集日志,有几个空格就是第几个
@@ -47,9 +48,10 @@ def getdata(DatainLines):
 
             # 获取准确度
             Accuracy = float(line.strip().split("\t")[19].split(":")[1])
-            ValAccuracys.append(np.array([Epoch, Lr, Accuracy]))
-            # if Loss<1:
-            ValidLosses.append(np.array([Epoch, Lr, Loss]))
+            if Accuracy>0.8:
+                ValAccuracys.append(np.array([Epoch, Lr, Accuracy]))
+            if Loss<5:
+                ValidLosses.append(np.array([Epoch, Lr, Loss]))
 
     # 对数据按行拼接
     TrainLosses = np.vstack(TrainLosses)
