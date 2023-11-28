@@ -31,13 +31,9 @@ def createOnnx(ptModel, onnxName):
     if UsingNet == "Net1":
         # TODO:记着换了模型可能要改输出个数
        # Net = ClassifyNet(In_Channels=1, Out_Channels=9, Features=6,device=device,file_path=None,LastLayerWithAvgPool=False).to(device)
-        Net = BinNet().to(device)
+        Net = tNet().to(device)
         dict = torch.load(os.path.join(FullModelPath, ptModel), map_location=device)
-       
-        del dict["FC.0.weight"] 
-        del dict["FC.0.bias"]
-        del dict["FC_End.weight"]
-        del dict["FC_End.bias"]
+    
         torchsummary.summary(Net.cuda(), (1, 36,48))
         Net.load_state_dict(dict)
         
@@ -64,7 +60,8 @@ def createOnnx(ptModel, onnxName):
         Input_Tensor,# TODO:这个东西突然有点迷
         out_path,
         input_names=input_names,
-        output_names=output_names
+        output_names=output_names,
+     
     )
 
 
@@ -84,14 +81,14 @@ def runOnnx(Input, ModelName):
     return Outputs
 
 if __name__ == "__main__":
-    Create = "True"
+    Create = "False"
     if Create=="False":
         # 创建onnx
-        createOnnx('step_3.pt', "ksy.onnx")
+        createOnnx('1.0_0009.pt', "99_2.onnx")
     elif Create =="True":
         # 测试onnx
-        OnnxName = "model.onnx"
-        TestPath = r"Dataset/result"
+        OnnxName = "sota.onnx"
+        TestPath = r"Dataset/Val"
 
         # 初始化模型
         Model = onnx.load(OnnxName)
@@ -105,15 +102,20 @@ if __name__ == "__main__":
       
         # 读取图片
         Imgs = os.listdir(TestPath)
+        cnt=0
+        total=0
         for img in Imgs:
             Img =Image.open(os.path.join(TestPath, img))
             img_temp = Img.copy()
             img_temp = ValImg_Transform(img_temp).view(1,1,36,-1)
             Output = Ort_session.run(None, {'input_0': img_temp.numpy()})
-            Label = int(os.path.join(TestPath, img).split("/")[2].split(".")[0].split("_")[3])
+            Label = int(os.path.join(TestPath, img).split("/")[2].split(".")[0].split("_")[1])
+         
           
             if Label == np.argmax(Output[0][0]):
-                Img.save(OutputFolderPath + r"/{0}".format(img))
+                cnt+=1
+            total+=1
+        print(cnt/total)
 
            
     else:

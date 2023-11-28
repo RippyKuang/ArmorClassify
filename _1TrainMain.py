@@ -40,34 +40,42 @@ def train(Epoch, Threshold=False, Ratio=0.6):
         Label = Label.to(ParaDic.get("Device"))
         # 权重清零
       
-     #   with torch.no_grad():
-            #teacher_preds = teacher_Net(InputImg)
-
-
+    
+        # with torch.no_grad():
+        #     teacher_preds = teacherNet(InputImg)
         with torch.set_grad_enabled(True):
             torch.cuda.empty_cache()
-            if epoch<50:
-                a = 0.7
-            elif epoch<100:
-                a=0.5
+            if epoch<50:  #a是hardloss占比，别搞错了
+                a = 0.3
             elif epoch<150:
-                a=0.3
-            elif epoch<200:
-                a=0.1
+                a=0.5
             else:
-                a=0
-            OutputImg = Net(InputImg)
-          
-            BatchLoss = Criterion(OutputImg, Label)
+                a=0.7
+   
            
-         #   d_loss = soft_loss(F.log_softmax(OutputImg/temp,dim=1),F.softmax(teacher_preds/temp,dim=1))*temp*temp
-          #  loss= a*BatchLoss+(1-a)*d_loss
+            OutputImg = Net(InputImg)
+      
+            BatchLoss = Criterion(OutputImg, Label)
+            
+         
+         #   softmax_t = F.softmax(teacher_preds/temp,dim=1)
+        #    d_loss = (soft_loss(F.log_softmax(OutputImg/temp,dim=1),softmax_t)*temp*temp)
+           # loss= a*BatchLoss+(1-a)*d_loss
+           
+           
             Optimizer.zero_grad()
             BatchLoss.backward()
-            # 权重更新
             Optimizer.step()
-            # 损失的叠加,一定要写item
+           
+            # t_Optimizer.zero_grad()
+            # t_BatchLoss.backward()
+            # t_Optimizer.step()
+
             Train_Loss += BatchLoss.item()
+         
+            # BatchLoss.backward()
+            # Optimizer.step()
+            # Train_Loss += BatchLoss.item()
 
 
             # 计算Accuracy
@@ -92,11 +100,11 @@ def train(Epoch, Threshold=False, Ratio=0.6):
     # 计算平均损失
     Average_Train_Loss = Train_Loss / TrainDataset.__len__() * ParaDic.get("Batchsize")
     print("Train Loss is", Average_Train_Loss, "train Accuracy is", Train_Accuracy, flush=True)
-    Log.logger.warning('\tTrain\tEpoch:{0:04d}\tLearningRate:{1:08f}\tLoss:{2:08f}\tAccuracy:{3:08f}\tAlpha:{0:04d}'.format(
+    Log.logger.warning('\tTrain\tEpoch:{0:04d}\tLearningRate:{1:08f}\tLoss:{2:08f}\tAccuracy:{3:08f}'.format(
         Epoch,
         Lr_Update.get_last_lr()[0],
         Average_Train_Loss,
-        Train_Accuracy,a))
+        Train_Accuracy))
 
 
 def test(Epoch, Threshold=False, Ratio=0.6):
@@ -157,9 +165,9 @@ if __name__ == "__main__":
     Version = 1.0
     # 存储网络的相关参数
     ParaDic = {"Epoch": 1000,
-               "Lr": 0.0001,# 0.0009
-               "Batchsize":32,
-               "LrUpdate_Ratio": 0.5,# 0.2
+               "Lr": 0.0003,# 0.0009
+               "Batchsize":128,
+               "LrUpdate_Ratio": 0.8,# 0.2
                "LrUpdate_Epoch": 150,
                "TestEpoch": 1,
                "SaveEpoch": 1,
@@ -176,8 +184,9 @@ if __name__ == "__main__":
     os.makedirs(OutputPath, exist_ok=True)
     # 读取数据集
     TrainDataset, TrainDataLoader, ValDataset, ValDataLoader = PipeDatasetLoader(DatasetPath, ParaDic["Batchsize"], False,TrainTransform=TrainImg_Transform, ValTransform=ValImg_Transform)
-    temp = 7
-    alpha = [0.7,0.5,0.4,0.3,0.1,0.05,0]
+    temp = 3
+  
+  
     #从此处开始可迭代
     for feature in [6]:
         # 初始化日志系统
@@ -187,21 +196,25 @@ if __name__ == "__main__":
         # SJ网络
         # 实例化对象
         if UsingNet == "Net1":
-           #Net = models.mobilenet_v2()
-            #print(Net)
-            # Net=models.mobilenet_v3_small(pretrained=False)
-            # Net.features[0][0] = nn.Conv2d(1 ,32, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
-            # fc_features = Net.classifier[1].in_features
-            # Net.classifier[1] = nn.Linear(fc_features, 9) 
-           # teacher_Net=BinNet()
-           # teacher_Net.load_state_dict(torch.load("Output/model/step3.pt"))
-            # Classify.Para_Init()
+            #  Net = models.mobilenet_v2()
+            #  print(Net)
+          
+            #  Net.features[0][0] = nn.Conv2d(1 ,32, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+            #  fc_features = Net.classifier[1].in_features
+            #  Net.classifier[1] = nn.Linear(fc_features, 9) 
+            # teacherNet=tNet()
+            # teacherNet.load_state_dict(torch.load("Output/model/teacher.pt"))
+            # # Classify.Para_Init()
             
-          #  teacher_Net.eval()
-           # teacher_Net.to(ParaDic.get("Device"))
+            # teacherNet.to(ParaDic.get("Device"))
 
-            Net = BinNet()
-           
+            # teacherNet = tNet()
+            # teacherNet.load_state_dict(torch.load("Output/model/teacher.pt"))
+            # teacherNet.eval()
+            # teacherNet.to(ParaDic.get("Device"))
+
+            Net = tNet()
+            Net.load_state_dict(torch.load("Output/model/t.pt"))
             Net.to(ParaDic.get("Device"))
 
         # 本部网络
@@ -212,9 +225,12 @@ if __name__ == "__main__":
        
         torchsummary.summary(Net.cuda(), (1, 36,48))
         Criterion = nn.CrossEntropyLoss().to(ParaDic.get("Device"))
+      
         soft_loss = nn.KLDivLoss(reduction="batchmean")
       
         Optimizer = torch.optim.Adam(Net.parameters(), lr=ParaDic.get("Lr"))
+
+      
     
         Lr_Update = torch.optim.lr_scheduler.StepLR(Optimizer, ParaDic.get("LrUpdate_Epoch"), gamma=ParaDic.get("LrUpdate_Ratio"))
        

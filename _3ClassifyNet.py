@@ -8,6 +8,7 @@
 import nntplib
 import os
 from collections import OrderedDict
+from networkx import is_pseudographical
 import torch
 import torch.nn as nn
 import numpy as np
@@ -32,7 +33,8 @@ class SqueezeExcitation(nn.Module):
         scale = nn.ReLU(inplace=True)(scale)
         return scale * x        
 
-class InvertedResidual(nn.Module):
+
+class tInvertedResidual(nn.Module):
     def __init__(self,in_channels,out_channels,expand_ratio=9,_stride=2,is_SE=False):
         super().__init__()
         hidden_dim=int(in_channels*expand_ratio)# 增大（减小）通道数
@@ -59,15 +61,18 @@ class InvertedResidual(nn.Module):
         conv_x = self.conv(x)
         if self.is_se ==1:
             conv_x = self.se(conv_x)
+        
         if self.stride==1 and self.is_sc==1:
-            return self.pw(conv_x)+x
+            res = self.pw(conv_x)+x
         else:
-            return self.pw(conv_x)
+            res = self.pw(conv_x)
+       
+        return res
 class dw_conv(nn.Module):
-    def __init__(self, nin, nout,with_se=False):
+    def __init__(self, nin, nout,with_se=False,ks=3,pd=1):
         super(dw_conv, self).__init__()
         self.dim=nout
-        self.depthwise = nn.Conv2d(nin, nin, kernel_size=3, padding=1, groups=nin)
+        self.depthwise = nn.Conv2d(nin, nin, kernel_size=ks, padding=pd, groups=nin)
         self.pointwise = nn.Conv2d(nin, nout, kernel_size=1)
         self.with_se = with_se
         self.se = SqueezeExcitation(nout)
@@ -80,71 +85,80 @@ class dw_conv(nn.Module):
         out = self.bn(out)
         out = nn.ReLU(inplace=True)(out)
         return out
+class SpatialAttention(nn.Module):
+    def __init__(self,ks=7,p=3):
+        super(SpatialAttention, self).__init__()
+        self.conv = nn.Conv2d(2, 1, kernel_size=ks, padding=p)
+        self.sigmoid = nn.Sigmoid()
 
-class BinNet(nn.Module):
-    def __init__(self):
-        super(BinNet, self).__init__()
-
-        self.conv = BinNet.conv_block(1, 4, 3, Padding=1) 
+    def forward(self, x):
     
-        self.invert_1 = InvertedResidual(4,16,1.5,1,True)
-       
+        max_pool = torch.max(x, dim=1, keepdim=True)[0]
+        avg_pool = torch.mean(x, dim=1, keepdim=True)
+        y = torch.cat([max_pool, avg_pool], dim=1)
+        y = self.conv(y)
+        return x*self.sigmoid(y)
+class tNet(nn.Module):
+    def __init__(self):
+        super(tNet, self).__init__()
 
-        self.dw_1 = dw_conv(16,32)
-        self.invert_2 = InvertedResidual(32,32,1.5,1,True)
-        self.invert_3 = InvertedResidual(32,32,1.5,1,True)
+        self.conv = tNet.conv_block(1, 3, 5, Padding=2) 
+        self.dw_0 = dw_conv(3,9,False,5,2)
+        self.dw_1 = dw_conv(9,24,False)
 
-
-        self.dw_2 = dw_conv(32,48,True)
-        self.invert_4 = InvertedResidual(48,48,1.5,1,False)
-        self.invert_5 = InvertedResidual(48,48,1.5,2,False)
-        self.dw_3 = dw_conv(48,64,True)
+        self.invert_2 = tInvertedResidual(24,24,1.5,1,True)
+        self.spA_1= SpatialAttention(7,3)
+        self.invert_3 = tInvertedResidual(24,24,1.5,1,True)
+        self.spA_2= SpatialAttention(7,3)
         
-        self.invert_6 = InvertedResidual(64,64,1.5,1,True)
-        self.invert_7 = InvertedResidual(64,64,1.5,2,True)
+        self.dw_2 = dw_conv(24,32,False) 
+        self.invert_4 = tInvertedResidual(32,32,1.25,2,True)
+        
+        self.invert_5 = tInvertedResidual(32,32,1.25,1,True)
+        
+    
+
+        self.dw_3 = dw_conv(32,48,False)
+        self.invert_7 = tInvertedResidual(48,48,1.5,2,True)
 
 
         self.out_conv1 = nn.Sequential(
-                            nn.Conv2d(64, 256, kernel_size=1, stride=1),
-                            SqueezeExcitation(256),
-                            nn.ReLU(inplace=True),
+                            nn.Conv2d(48, 128, kernel_size=1, stride=1),
+                            SqueezeExcitation(128),
+                            nn.Hardswish(inplace=True),
                         )
-        self.FC1 = BinNet.fc_block(60,"fc1")
-        # 最后一层分类
-        self.FC_End = nn.LazyLinear(9)
+        self.out_conv2 = nn.Sequential(
+                            nn.Conv2d(128, 196, kernel_size=1, stride=1),
+                            nn.Hardswish(inplace=True),
+                            nn.Conv2d(196, 9, kernel_size=1, stride=1),
+                        )
 
-    
-
-
-    def fc_block(NodesNum, Name, DropRatio=0.5):
-        return nn.Sequential(
-            nn.LazyLinear(NodesNum),
-            nn.ReLU(inplace=True),
-            nn.Dropout(DropRatio),
-        )
     def conv_block(In_Channels, Features,  Kernel_Size, Padding=0):
         return nn.Sequential(
-            nn.Conv2d(In_Channels, Features, kernel_size=Kernel_Size, stride=2,padding=Padding, bias=True),
+            nn.Conv2d(In_Channels, Features, kernel_size=Kernel_Size, stride=3,padding=Padding, bias=True),
             nn.BatchNorm2d(Features),
             nn.ReLU(inplace=True),
         )
 
     def forward(self,x):
         x=self.conv(x)
-        x=self.invert_1(x)
+        x=self.dw_0(x)
+
         x=self.invert_2(self.dw_1(x))
+        x=self.spA_1(x)
         x=self.invert_3(x)
+        x=self.spA_2(x)
         x=self.dw_2(x)
         x=self.invert_4(x)
         x=self.invert_5(x)
         x=self.dw_3(x)
-        x=self.invert_6(x)
         x=self.invert_7(x)
         x = self.out_conv1(x)
-        x = nn.Flatten()(x)
-        x = self.FC1(x)
-        Output = self.FC_End(x)
-        return Output
+        batch, channels, height, width = x.size()
+        x = nn.AvgPool2d(kernel_size=[height, width])(x)
+        x = self.out_conv2(x)
+        x = x.view(batch, -1)
+        return x
 
 
 class ClassifyNet(nn.Module):

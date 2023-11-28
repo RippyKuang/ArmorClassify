@@ -9,28 +9,32 @@ if __name__ == "__main__":
     model=BinNet()
    
             
-    model.load_state_dict(torch.load("Output/model/step_3.pt"))
-
+    model.load_state_dict(torch.load("Output/model/1.0_0162.pt"))
     model.eval()
-    src = Image.open("./error3.bmp") #args.img_src是预设的图片路径
-    
-    src_tensor = ValImg_Transform(src)
-    print(src_tensor.shape)
-    src_tensor = torch.unsqueeze(src_tensor, dim=0) 
-#这里是因为模型接受的数据维度是[B,C,H,W]，输入的只有一张图片所以需要升维
 
-#3）指定需要计算CAM的网络结构
-    target_layers = [model.invert_2] #down4()是在Net网络中__init__()方法中定义了的self.down4
-
-#5）可视化展示结果
+    srcs=[]
+    target_label=2
+    target_layers = [model.invert_2] 
     cam = GradCAM(model=model, target_layers=target_layers, use_cuda=False)
-    grayscale_cam = cam(input_tensor=src_tensor, target=model(src_tensor))
 
-
-    grayscale_cam = grayscale_cam[0, :]
+    for dirpath, dirnames,filenames in os.walk("./Dataset/Val"):
+        for fn in filenames:
+            if  int(fn[-5])==target_label:
+                srcs.append(Image.open(dirpath+'/'+fn))
+    for src in srcs:      
+      
+        src_tensor = ValImg_Transform(src)
   
-    visualization = show_cam_on_image(np.array(src.convert("RGB")).astype(dtype=np.float32) / 255.,
+        src_tensor = torch.unsqueeze(src_tensor, dim=0) 
+        t = model(src_tensor)
+        print("Predict Label: "+str(torch.softmax(t, 1, torch.float).argmax(dim=1)))
+        grayscale_cam = cam(input_tensor=src_tensor, target=t)
+
+
+        grayscale_cam = grayscale_cam[0, :]
+  
+        visualization = show_cam_on_image(np.array(src.convert("RGB")).astype(dtype=np.float32) / 255.,
                                       grayscale_cam,
                                       use_rgb=True)
-    plt.imshow(visualization)
-    plt.show()
+        plt.imshow(visualization)
+        plt.show()

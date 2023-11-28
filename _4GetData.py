@@ -43,7 +43,7 @@ def resize_equal(src, size, equal = True):
     :param equal: 是否等比例裁剪
     :return: 裁剪过后的图
     """
-    print("Start to resize Img")
+ #   print("Start to resize Img")
     if equal:
         # 对ROI区域进行等比例缩放
         OldSize = src.shape[0:2]
@@ -85,17 +85,20 @@ def saveimg(img, ratio, train_cnt, val_cnt, id, index, img_name = None, mode="Tw
     :param mode: 模式,支持训练集+测试集,若选择"OneFolders"则都会保存到测试集中
     :return:
     """
-    print("Start to save Img")
+  #  print("Start to save Img")
     if (ratio > 1) | (ratio < 0):
         print("Out of range!!!")
         return 0
-
+    
     #通过图片通道数判断是否改变id
     if len(img.shape) == 2:
         id //= 3
         # 为了负样本要让id+1
         id += 1
-
+    if id == 6 :
+        return 
+    if id == 9:
+        id =6
     if mode == "TwoFolders":
         if random.random() < ratio:
             cv.imwrite("Dataset/Train/Img{}_{}.bmp".format(index, id), img)
@@ -105,7 +108,7 @@ def saveimg(img, ratio, train_cnt, val_cnt, id, index, img_name = None, mode="Tw
             val_cnt[id] += 1
 
     if mode == "OneFolder":
-        cv.imwrite("Dataset/Val/Img{}_{}.bmp".format(index, id), img)
+        cv.imwrite("Dataset/Raw/Img{}_{}.bmp".format(index, id), img)
         val_cnt[id] += 1
 
     if mode == "DeBug":
@@ -121,7 +124,7 @@ def xml_reader(XmlLabel, Target):
     :param Target: 目标装甲板列表
     :return: 标签中对应的ID值与对应的四点列表
     """
-    print("Start Process xml Label")
+   # print("Start Process xml Label")
     # 存储单组点的列表
     Point = []
     # 存储单张图中所有的装甲板四点信息
@@ -134,13 +137,16 @@ def xml_reader(XmlLabel, Target):
     root = Xml.documentElement
     # 获取标签对应的图像的名字
     Img_Name = root.getElementsByTagName('filename')[0].childNodes[0].data
+    
     name = root.getElementsByTagName('name')
+   
     bndbox = root.getElementsByTagName('bndbox')
 
     for i in range(len(list(bndbox))):
         # 存储装甲板角点的坐标与ID
         Class = name[i].childNodes[0].data
         if Class not in Target:
+            print(Class)
             continue
         else:
             ID = Target.index(Class)
@@ -148,6 +154,7 @@ def xml_reader(XmlLabel, Target):
         for child in bndbox[i].childNodes:
             if (child.nodeName != '#text'):
                 Point.append(float(child.childNodes[0].data))
+        
         Points.append(Point)
         Point = []
 
@@ -200,7 +207,7 @@ def imgprocess(Img, Point, Mode):
     :param Mode: 模式："WarpAndGray"-透射变换+灰度, "Rectangle":最小外接矩形, "RectangleAndGray":最小外接矩形+灰度, "Mask":掩码提取(无背景外接矩形), "MaskAndGray":掩码加灰度
     :return: 处理后的图像
     """
-    print("Start to process Img, Mode is:", Mode)
+ #   print("Start to process Img, Mode is:", Mode)
     # 投射变换加转换灰度模式
     if Mode == "WarpAndGray":
         for i in range(len(Point)):
@@ -246,7 +253,7 @@ def imgprocess(Img, Point, Mode):
         if MaxY > ImgSize[1]:
             MaxY = ImgSize[1]
 
-        print(int(MinY),int(MaxY), int(MinX),int(MaxX))
+    #    print(int(MinY),int(MaxY), int(MinX),int(MaxX))
         ROI = Img[int(MinY):int(MaxY), int(MinX):int(MaxX), :]
         if Mode == "RectangleAndGray":
             ROI = cv.cvtColor(ROI, cv.COLOR_BGR2GRAY)
@@ -338,21 +345,22 @@ if __name__ == "__main__":
     # ImgPath = r"E:\718\Code\AI\NewClassify\Dataset\DatasetSource"
     # LabelPath = r"E:\718\Code\AI\NewClassify\Dataset\DatasetSource"
     # 西南交大
-    ImgPath = r"/home/kuang/project/StandardDataset/HERO/HERO-22/OTH/Armor"
-    LabelPath = r"/home/kuang/project/StandardDataset/HERO/HERO-22/OTH/Armor"
+    ImgPath = r"/home/kuang/project/StandardDataset"
+    LabelPath = r"/home/kuang/project/StandardDataset"
 
     ImgList = []
     LabelList = []
     # 目标装甲板类别
     TargetArmor = [
                "armor_hero_red", "armor_hero_blue","armor_hero_none",
-               "armor_engineer_red", "armor_engineer_blue", "armor_engineer_none",
+               "armor_engine_red", "armor_engine_blue", "armor_engine_none",
                "armor_infantry_3_red", "armor_infantry_3_blue", "armor_infantry_3_none",
                "armor_infantry_4_red", "armor_infantry_4_blue", "armor_infantry_4_none",
                "armor_infantry_5_red", "armor_infantry_5_blue", "armor_infantry_5_none",
                "armor_sentry_red", "armor_sentry_blue", "armor_sentry_none",
-               "armor_outpost_none", "armor_outpost_blue", "armor_outpost_none",
-               "armor_base_red", "armor_base_blue", "armor_base_none"
+               "armor_outpost_none", "armor_outpost_blue", "armor_outpost_red",
+               "armor_base_red", "armor_base_blue", "armor_base_none",
+               "armor_sentry_blue_23","armor_sentry_red_23","armor_sentry_none_23"
                 ]
 
     # 训练集和测试集样本数量统计
@@ -380,18 +388,20 @@ if __name__ == "__main__":
     # 遍历标签标签对位
     for num, label in enumerate(Labels):
         # 读取标签的后缀
-        LabelSuffix = label.split("\\")[-1].split(".")[-1]
+        LabelSuffix = label.split("/")[-1].split(".")[-1]
         # 图片与标签的对位(图片比标签多)
         try:
-            while (label.split("\\")[-1].split(".")[0] !=
-                   Imgs[CorrectIndex].split("\\")[-1].split(".")[0]):
+            while (label.split("/")[-1].split(".")[0] !=
+                   Imgs[CorrectIndex].split("/")[-1].split(".")[0]):
                 CorrectIndex = CorrectIndex + 1
+             #   print(label.split("/")[-1].split(".")[0]+"   "+Imgs[CorrectIndex].split("/")[-1].split(".")[0])
         except:
             print("Error! Can't match!")
             print("label", label.split("\\")[-1].split(".")[0].split("-")[-1])
 
         # 读取图片
-        print(Imgs[CorrectIndex])
+      
+       # print(Imgs[CorrectIndex])
         Img = cv.imread(Imgs[CorrectIndex])
         Img = cv.resize(Img, ImgSize) # 这一步放缩非常重要！！！
         # 读取标签和点
@@ -406,7 +416,7 @@ if __name__ == "__main__":
         for num, point in enumerate(Points):
             # 标签检查,防止一些奇怪的从右上开始标签
             point = correct_label(point)
-            print(point)
+         #   print(point)
             # 获取预处理之后截取的装甲板
             ArmorImg = imgprocess(Img, point, Mode = "RectangleAndGray") #"MaskAndGray""RectangleAndGray"
             # 图像裁剪
@@ -414,7 +424,7 @@ if __name__ == "__main__":
             # 图像保存
             saveimg(CropArmorImg, 0.8, TrainCount, ValCount,
                     ArmorClasses[num], ImgIndex,img_name=Imgs[CorrectIndex], mode="OneFolder")
-            print("Index:",ImgIndex)
+          #  print("Index:",ImgIndex)
             ImgIndex += 1
 
     print("TrainCount:", TrainCount, "ValCount:", ValCount)

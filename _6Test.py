@@ -9,6 +9,7 @@ import os.path
 import time
 
 import matplotlib.pyplot as plt
+from torch import t
 
 from _3ClassifyNet import *
 from _2Dataset_Load import *
@@ -16,6 +17,7 @@ from _7Evaluate_Model import *
 from _8ParametersReader import *
 from _0Utility import plot_confusion_matrix
 from _1TrainMain import UsingNet
+import time
 
 
 # 展示预测的图片以及预测结果
@@ -117,7 +119,7 @@ if __name__ == "__main__":
 
     # 读取模型文件
     ModelPath = r"./Output/model"
-    Models = ["1.0_0054.pt"]
+    Models = ["1.0_0001.pt"]
 
     # 存储所有的曲线绘制数据
     OutputList = []
@@ -134,7 +136,7 @@ if __name__ == "__main__":
         # 初始化模型
         # TODO:目前遍历测试与评估只支持同一网络结构
         if UsingNet == "Net1":
-            Net = BinNet().to(device)
+            Net = tNet().to(device)
             # 导入模型
             Net.load_state_dict(torch.load(FullModelPath, map_location=device))
             # 开启测试模式，取消梯度更新
@@ -176,6 +178,7 @@ if __name__ == "__main__":
             os.makedirs(os.path.join(ClassPath, "false"), exist_ok=True)
 
         # 开始测试
+
         for Num, (InputImg, Label, SampleName) in enumerate(ValDataLoader):
             InputImg = InputImg.float().to(device)
             Output = test(InputImg, Label, Matrix)
@@ -183,8 +186,11 @@ if __name__ == "__main__":
             ShowImg = resultVisualization(InputImg, Label, Output, Display=False)
             LabelID = Label.numpy()[0]
             if LabelID != OutputID:
-                cv.imwrite(OutputFolderPath + r"/{0}/false/{1}_{2}_{3}_{4}.jpg".format(LabelID, LabelID, FalseNum, OutputID, max(Output)),cv.resize(ShowImg, (48, 36)))
+                ShowImg=cv.cvtColor(ShowImg,cv.COLOR_BGR2GRAY)
+                cv.imwrite(OutputFolderPath + r"/{0}/false/{1}_{2}_{3}_{4}.bmp".format(LabelID, LabelID, FalseNum, OutputID, max(Output)),cv.resize(ShowImg, (48, 36)))
                 FalseNum += 1
+            else:
+                TrueNum +=1
 
             # 存储评估的数据
             Outputs.append(Output)
@@ -203,6 +209,7 @@ if __name__ == "__main__":
 
         plt.savefig("result")
         plt.show()
+        print("acc: "+str(TrueNum/(TrueNum+FalseNum)))
 
         # 拼接并拉平
         Outputs = np.vstack(Outputs).ravel()

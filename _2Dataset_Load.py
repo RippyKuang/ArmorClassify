@@ -20,21 +20,14 @@ Input_Img_Size = (36, 48)
 # 训练数据集原图片的转换
 TrainImg_Transform = transforms.Compose([
    #transforms.GaussianBlur(5,( 0.1,5)),
-   transforms.RandomAffine(degrees=(-40,40),shear=(-30,30,-20,20)),
-   transforms.RandomResizedCrop(Input_Img_Size, scale=(0.6, 1.), interpolation=Image.BILINEAR),
-   transforms.ColorJitter(brightness=(0.4),contrast=0.1),  # (8, 12)超亮
+  # transforms.RandomAffine(degrees=(-50,50),shear=(-20,20,-10,10)),
+   transforms.RandomResizedCrop(Input_Img_Size, scale=(0.8, 1.), interpolation=Image.BILINEAR),
+   transforms.ColorJitter(brightness=(0.5),contrast=0.1),  # (8, 12)超亮
    transforms.ToTensor(),
    transforms.Normalize(mean=[0.444], std=[0.225]),
 ])
 
-TrainImg_TransformforSeven = transforms.Compose([
-   #transforms.GaussianBlur(5,( 0.1,5)),
-   transforms.RandomAffine(degrees=(-40,40),shear=(-30,30,-20,20)),
-   transforms.RandomResizedCrop(Input_Img_Size, scale=(0.6, 1.), interpolation=Image.BILINEAR),
-   transforms.ColorJitter(brightness=(0.4,1.4),contrast=0.1),  # (8, 12)超亮
-   transforms.ToTensor(),
-   transforms.Normalize(mean=[0.444], std=[0.225]),
-])
+
 
 # 测试数据集原图片的转换
 ValImg_Transform = transforms.Compose([
@@ -47,11 +40,12 @@ ValImg_Transform = transforms.Compose([
 
 # 数据导入的类的创建
 class PipeDataset(Dataset):
-    def __init__(self, DatasetFolderPath, ImgTransform,  ShowSample=False):
+    def __init__(self, DatasetFolderPath, ImgTransform,  ShowSample=False,isVal=False):
         self.DatasetFolderPath = DatasetFolderPath
         self.ImgTransform = ImgTransform
         self.ShowSample = ShowSample
         self.SampleFolders = os.listdir(self.DatasetFolderPath)
+        self.isVal=isVal
 
     def __len__(self):
         return len(self.SampleFolders)
@@ -63,10 +57,9 @@ class PipeDataset(Dataset):
         FusionImg = Image.open(SampleFolderPath)
         #数据预处理
         Label = int(SampleFolderPath.split("/")[2].split(".")[0].split("_")[1])
-        if Label!=7:
-            FusionImg = self.ImgTransform(FusionImg)
-        else:
-            FusionImg = TrainImg_TransformforSeven(FusionImg)
+    
+        FusionImg = self.ImgTransform(FusionImg)
+  
         #读取图片的标签
        
        # Label = int(SampleFolderPath.split("/")[7].split(".")[0].split("_")[3])
@@ -108,7 +101,7 @@ def PipeDatasetLoader(FolderPath, BatchSize=1, ShowSample=False, TrainTransform 
     # 对标签集进行处理,与训练集处理相同
     ValFolderPath = os.path.join(FolderPath, 'Val')
  #   ValFolderPath ="/home/kuang/project/dataset_marker/dataset/result"
-    ValDataset = PipeDataset(ValFolderPath, ValTransform,ShowSample)
+    ValDataset = PipeDataset(ValFolderPath, ValTransform,ShowSample,isVal=True)
     ValDataLoader = DataLoader(ValDataset, batch_size=1, shuffle=False, drop_last=False, num_workers=8, pin_memory=True)
     return TrainDataset, TrainDataLoader, ValDataset, ValDataLoader
 
